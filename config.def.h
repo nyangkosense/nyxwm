@@ -7,6 +7,11 @@
 #define BAR_COLOR "#333333"
 #define TEXT_COLOR "#FFFFFF"
 
+// tray
+#define TRAY_ICON_SIZE 25
+#define TRAY_ICON_SPACING 4
+#define TRAY_PADDING 4
+
 #define MOD Mod4Mask
 #define BORDER_COLOR "#ffffff"
 #define BORDER_WIDTH 1

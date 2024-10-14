@@ -2,10 +2,10 @@
 #define CONFIG_H
 
 // stats bar
-#define BAR_HEIGHT 25
-#define FONT "Monospace:size=14"
-#define BAR_COLOR "#121212"
-#define TEXT_COLOR "#d0d0d0"
+#define BAR_HEIGHT 20
+#define FONT "monospace:size=10"
+#define BAR_COLOR "#333333"
+#define TEXT_COLOR "#FFFFFF"
 
 // tray
 #define TRAY_ICON_SIZE 25
@@ -13,7 +13,7 @@
 #define TRAY_PADDING 4
 
 #define MOD Mod4Mask
-#define BORDER_COLOR "#000000"
+#define BORDER_COLOR "#ffffff"
 #define BORDER_WIDTH 1
 const char* menu[]    = {"dmenu_run",      0};
 const char* term[]    = {"st",             0};
