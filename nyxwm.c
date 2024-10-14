@@ -31,13 +31,6 @@
     fprintf(stderr, "[%s] ERROR: " msg ": %s\n", timestr, ##__VA_ARGS__, strerror(errno)); \
 } while(0)
 
-static client       *list = {0}, *ws_list[10] = {0}, *cur;
-static int          ws = 1, sw, sh, wx, wy, numlock = 0;
-static unsigned int ww, wh;
-static int          s;
-static XButtonEvent mouse;
-int num_systray_icons;
-
 Display      *d;
 Window       root;
 Window bar;
@@ -51,6 +44,13 @@ Atom manager_atom;
 Atom system_tray_opcode_atom;
 Atom system_tray_selection_atom;
 
+static client       *list = {0}, *ws_list[10] = {0}, *cur;
+static int          ws = 1, sw, sh, wx, wy, numlock = 0;
+static unsigned int ww, wh;
+static int          s;
+static XButtonEvent mouse;
+int num_systray_icons;
+
 static void (*events[LASTEvent])(XEvent *e) = {
     [ButtonPress]      = button_press,
     [ButtonRelease]    = button_release,
@@ -62,8 +62,6 @@ static void (*events[LASTEvent])(XEvent *e) = {
     [EnterNotify]      = notify_enter,
     [MotionNotify]     = notify_motion
 };
-
-#include "config.h"
 
 unsigned long getcolor(const char *col) {
     Colormap m = DefaultColormap(d, s);
