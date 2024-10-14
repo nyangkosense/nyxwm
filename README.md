@@ -13,6 +13,8 @@ nyxwm is a simple, lightweight X window manager forked from [sowm](https://githu
 - Integrated systray
 - Autostart script support
 
+![image](https://github.com/user-attachments/assets/6762331f-ff0b-4f3f-b400-2e06f75479f6)
+
 ## Dependencies
 
 To build and run nyxwm, you'll need the following:
