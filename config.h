@@ -1,7 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-
 // stats bar
 #define BAR_HEIGHT 25
 #define FONT "Monospace:size=14"

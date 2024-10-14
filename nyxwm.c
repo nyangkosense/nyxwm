@@ -2,20 +2,17 @@
 #include <X11/XF86keysym.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
+#include <X11/Xproto.h> 
+#include <X11/Xft/Xft.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <pthread.h>
-#include <X11/Xproto.h> 
 #include <sys/wait.h>
 #include <sys/select.h>
 #include <errno.h>
-
-// new includes
-#include <X11/Xft/Xft.h>
 #include <time.h>
-
 #include "nyxwm.h"
 #include "config.h"
 #include "nyxwmblocks.h"
@@ -38,8 +35,10 @@ static client       *list = {0}, *ws_list[10] = {0}, *cur;
 static int          ws = 1, sw, sh, wx, wy, numlock = 0;
 static unsigned int ww, wh;
 static int          s;
-Display      *d;
 static XButtonEvent mouse;
+int num_systray_icons;
+
+Display      *d;
 Window       root;
 Window bar;
 XftFont *xft_font;
@@ -47,7 +46,6 @@ XftColor xft_color;
 XftDraw *xft_draw;
 Window systray;
 Window systray_icons[MAX_SYSTRAY_ICONS];
-int num_systray_icons;
 Atom xembed_atom;
 Atom manager_atom;
 Atom system_tray_opcode_atom;
@@ -72,7 +70,6 @@ unsigned long getcolor(const char *col) {
     XColor c;
     return (!XAllocNamedColor(d, m, col, &c, &c))?0:c.pixel;
 }
-
 
 void runAutoStart(void) {
     system("cd ~/.nyxwm; ./autostart.sh &");

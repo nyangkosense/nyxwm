@@ -1,5 +1,5 @@
-#ifndef SOWM_H
-#define SOWM_H
+#ifndef NYXWM_H
+#define NYXWM_H
 
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
@@ -24,8 +24,14 @@
 #define XEMBED_UNREGISTER_ACCELERATOR 13
 #define XEMBED_ACTIVATE_ACCELERATOR 14
 
+
+#ifndef MAX_SYSTRAY_ICONS
 #define MAX_SYSTRAY_ICONS 20
+#endif
+
+#ifndef BAR_HEIGHT
 #define BAR_HEIGHT 23
+#endif
 
 #define win        (client *t=0, *c=list; c && t!=list->prev; t=c, c=c->next)
 #define ws_save(W) ws_list[W] = list
