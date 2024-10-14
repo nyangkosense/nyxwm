@@ -2,6 +2,8 @@
 
 nyxwm is a simple, lightweight X window manager forked from [sowm](https://github.com/dylanaraps/sowm) and incorporating features from [dwmblocks](https://github.com/torrinfail/dwmblocks). It aims to provide a minimalist yet functional desktop environment for Linux systems.
 
+![image](https://github.com/user-attachments/assets/6762331f-ff0b-4f3f-b400-2e06f75479f6)
+
 ## Features
 
 - Minimalist design philosophy
@@ -12,8 +14,6 @@ nyxwm is a simple, lightweight X window manager forked from [sowm](https://githu
 - Customizable through config.h
 - Integrated systray
 - Autostart script support
-
-![image](https://github.com/user-attachments/assets/6762331f-ff0b-4f3f-b400-2e06f75479f6)
 
 ## Dependencies
 
@@ -29,7 +29,7 @@ To build and run nyxwm, you'll need the following:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/nyxwm.git
+   git clone https://github.com/nyangkosense/nyxwm.git
    cd nyxwm
    ```
 
