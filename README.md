@@ -33,7 +33,7 @@ To build and run nyxwm, you'll need the following:
    cd nyxwm
    ```
 
-2. Edit config.h to your liking.
+2. Edit config.h / blocks.h
 
 3. Build and install:
    ```
@@ -60,7 +60,7 @@ Then, you can start nyxwm by running `startx`.
 ### Default Keybindings
 
 - `Mod4 + Enter`: Open terminal (st)
-- `Mod4 + p`: Open dmenu
+- `Mod4 + d`: Open dmenu
 - `Mod4 + [1-9]`: Switch to workspace
 - `Mod4 + Shift + [1-9]`: Move window to workspace
 - `Mod4 + f`: Toggle fullscreen
@@ -74,11 +74,11 @@ nyxwm looks for an autostart script at `~/.config/nyxwm/autostart.sh`. You can u
 
 ## Contributing
 
-Contributions to nyxwm are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+Please feel free to submit pull requests or open issues for bugs and feature requests.
 
 ## Acknowledgments
 
-nyxwm is forked from [sowm](https://github.com/dylanaraps/sowm) by Dylan Araps and incorporates ideas from [dwmblocks](https://github.com/torrinfail/dwmblocks). 
+nyxwm is forked from [sowm](https://github.com/dylanaraps/sowm) by Dylan Araps and incorporates ideas from [dwmblocks](https://github.com/torrinfail/dwmblocks) by torrinfail.
 
 ## License
 
