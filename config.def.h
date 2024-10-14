@@ -18,7 +18,6 @@ const char* bridown[] = {"bri", "10", "-", 0};
 const char* voldown[] = {"amixer", "sset", "Master", "5%-",         0};
 const char* volup[]   = {"amixer", "sset", "Master", "5%+",         0};
 const char* volmute[] = {"amixer", "sset", "Master", "toggle",      0};
-const char* colors[]  = {"bud", "/home/goldie/Pictures/Wallpapers", 0};
 
 static struct key keys[] = {
     {MOD,      XK_q,   win_kill,   {0}},
@@ -29,7 +28,6 @@ static struct key keys[] = {
     {Mod1Mask|ShiftMask, XK_Tab, win_prev,   {0}},
 
     {MOD, XK_d,      run, {.com = menu}},
-    {MOD, XK_w,      run, {.com = colors}},
     {MOD, XK_p,      run, {.com = scrot}},
     {MOD, XK_Return, run, {.com = term}},
 
