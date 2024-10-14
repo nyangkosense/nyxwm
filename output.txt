@@ -1,3 +1,0 @@
-rm -f nyxwm *.o
-cc -O3 -std=c99 -Wall -Wextra -pedantic -Wold-style-declaration -Wmissing-prototypes -Wno-unused-parameter -I/usr/include/freetype2 -I/usr/include/libpng16 -o nyxwm nyxwm.c -lX11 -lXft -lfreetype
-install -Dm755 nyxwm /usr/bin/nyxwm
