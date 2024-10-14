@@ -75,7 +75,6 @@ unsigned long getcolor(const char *col) {
 
 
 void runAutoStart(void) {
-    system("cd ~/.nyxwm; ./autostart_blocking.sh");
     system("cd ~/.nyxwm; ./autostart.sh &");
 }
 
