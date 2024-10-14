@@ -1,0 +1,2 @@
+# nyxwm
+Nyx Window Manager
