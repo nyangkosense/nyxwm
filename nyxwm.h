@@ -103,7 +103,7 @@ void create_systray();
 void handle_systray_request(XClientMessageEvent *cme);
 void update_systray();
 void run_nyxwmblocks();
-
+void handle_destroy_notify(XDestroyWindowEvent *ev);
 int xerror(Display *dpy, XErrorEvent *ee);
 
 extern Window bar;

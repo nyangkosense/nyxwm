@@ -180,15 +180,16 @@ void win_fs(const Arg arg) {
     if (!cur) return;
 
     if ((cur->f = cur->f ? 0 : 1)) {
+        // Going fullscreen
         win_size(cur->w, &cur->wx, &cur->wy, &cur->ww, &cur->wh);
-        int tray_width = num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2;
-        if (num_systray_icons > 0) {
-            tray_width -= TRAY_ICON_SPACING;
-        }
-        XMoveResizeWindow(d, cur->w, 0, BAR_HEIGHT, sw - tray_width, sh - BAR_HEIGHT);
+        XMoveResizeWindow(d, cur->w, 0, BAR_HEIGHT, sw, sh - BAR_HEIGHT);
+        XRaiseWindow(d, cur->w);
     } else {
+        // Exiting fullscreen
         XMoveResizeWindow(d, cur->w, cur->wx, cur->wy, cur->ww, cur->wh);
     }
+    update_systray();
+    update_bar();
 }
 
 void win_to_ws(const Arg arg) {
@@ -378,18 +379,50 @@ void create_systray() {
     }
 }
 
+void update_systray() {
+    int tray_width = num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2;
+    if (num_systray_icons > 0) {
+        tray_width -= TRAY_ICON_SPACING;
+
+        XMapWindow(d, systray);
+        XMoveResizeWindow(d, systray, 
+            sw - tray_width, 0,
+            tray_width, BAR_HEIGHT);
+
+        for (int i = 0; i < num_systray_icons; i++) {
+            XMoveResizeWindow(d, systray_icons[i],
+                TRAY_PADDING + i * (TRAY_ICON_SIZE + TRAY_ICON_SPACING),
+                (BAR_HEIGHT - TRAY_ICON_SIZE) / 2,
+                TRAY_ICON_SIZE, TRAY_ICON_SIZE);
+            XMapWindow(d, systray_icons[i]);
+        }
+    } else {
+        XUnmapWindow(d, systray);
+        tray_width = 0;
+    }
+
+    // Adjust the bar size to account for the systray
+    int bar_width = sw - tray_width;
+    XMoveResizeWindow(d, bar, 0, 0, bar_width, BAR_HEIGHT);
+
+    // Raise the bar and systray to ensure they're visible
+    XRaiseWindow(d, bar);
+    if (num_systray_icons > 0) {
+        XRaiseWindow(d, systray);
+    }
+
+    update_bar();
+}
+
 void handle_systray_request(XClientMessageEvent *cme) {
     if (cme->data.l[1] == SYSTEM_TRAY_REQUEST_DOCK) {
         Window icon = cme->data.l[2];
         if (num_systray_icons < MAX_SYSTRAY_ICONS) {
             XWindowAttributes wa;
             if (XGetWindowAttributes(d, icon, &wa)) {
-                XReparentWindow(d, icon, systray, 
-                    TRAY_PADDING + num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING), 
-                    (BAR_HEIGHT - TRAY_ICON_SIZE) / 2);
-                XResizeWindow(d, icon, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
-                XMapRaised(d, icon);
                 systray_icons[num_systray_icons++] = icon;
+                XReparentWindow(d, icon, systray, 0, 0);
+                XMapRaised(d, icon);
 
                 XEvent ev;
                 ev.xclient.type = ClientMessage;
@@ -403,72 +436,37 @@ void handle_systray_request(XClientMessageEvent *cme) {
                 ev.xclient.data.l[4] = 0;
                 XSendEvent(d, icon, False, NoEventMask, &ev);
 
-                XSync(d, False);
-                printf("Icon docked: %ld\n", icon);
+                update_systray();
+                DEBUG_LOG("Icon docked: %ld", icon);
             } else {
-                printf("Failed to get window attributes for icon: %ld\n", icon);
+                DEBUG_LOG("Failed to get window attributes for icon: %ld", icon);
             }
         } else {
-            printf("Maximum number of systray icons reached\n");
+            DEBUG_LOG("Maximum number of systray icons reached");
         }
     } else {
-        printf("Received unknown systray request: %ld\n", cme->data.l[1]);
-    }
-}
-
-void update_systray() {
-    static int prev_num_icons = 0;
-    static int prev_tray_width = 0;
-
-    int tray_width = num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2;
-    if (num_systray_icons > 0) {
-        tray_width -= TRAY_ICON_SPACING;
-    }
-
-    if (num_systray_icons != prev_num_icons || tray_width != prev_tray_width) {
-        for (int i = 0; i < num_systray_icons; i++) {
-            XMoveResizeWindow(d, systray_icons[i],
-                TRAY_PADDING + i * (TRAY_ICON_SIZE + TRAY_ICON_SPACING),
-                (BAR_HEIGHT - TRAY_ICON_SIZE) / 2,
-                TRAY_ICON_SIZE, TRAY_ICON_SIZE);
-        }
-
-        XMoveResizeWindow(d, systray, 
-            sw - tray_width, 0,
-            tray_width, BAR_HEIGHT);
-
-        prev_num_icons = num_systray_icons;
-        prev_tray_width = tray_width;
+        DEBUG_LOG("Received unknown systray request: %ld", cme->data.l[1]);
     }
 }
 
 void update_bar() {
-    static char prev_status[256] = {0};
     char status[256];
-
     run_nyxwmblocks(status, sizeof(status));
 
-    if (strcmp(status, prev_status) != 0) {
-        XClearWindow(d, bar);
+    XClearWindow(d, bar);
 
-        // Calculate the actual width of the bar
-        int bar_width = sw - 2 * TRAY_PADDING; // Adjust if needed
+    int bar_width = sw - (num_systray_icons > 0 ? (num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2 - TRAY_ICON_SPACING) : 0);
 
-        // Calculate the width of the text
-        XGlyphInfo extents;
-        XftTextExtentsUtf8(d, xft_font, (XftChar8*)status, strlen(status), &extents);
+    XGlyphInfo extents;
+    XftTextExtentsUtf8(d, xft_font, (XftChar8*)status, strlen(status), &extents);
 
-        // Calculate the starting x position to center the text
-        int x = (bar_width - extents.width) / 2;
-        int y = BAR_HEIGHT / 2 + xft_font->ascent / 2;
+    int x = (bar_width - extents.width) / 2;
+    int y = BAR_HEIGHT / 2 + xft_font->ascent / 2;
 
-        // Ensure x is not negative
-        x = (x < 10) ? 10 : x;
+    x = (x < 10) ? 10 : x;
 
-        XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y, (XftChar8*)status, strlen(status));
-        XFlush(d);
-        strcpy(prev_status, status);
-    }
+    XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y, (XftChar8*)status, strlen(status));
+    XFlush(d);
 }
 
 int xerror(Display *dpy, XErrorEvent *ee) {
@@ -484,6 +482,19 @@ int xerror(Display *dpy, XErrorEvent *ee) {
               ee->request_code, ee->error_code, error_text);
 
     return 0;
+}
+
+void handle_destroy_notify(XDestroyWindowEvent *ev) {
+    for (int i = 0; i < num_systray_icons; i++) {
+        if (systray_icons[i] == ev->window) {
+            for (int j = i; j < num_systray_icons - 1; j++) {
+                systray_icons[j] = systray_icons[j+1];
+            }
+            num_systray_icons--;
+            update_systray();
+            break;
+        }
+    }
 }
 
 int main(void) {
@@ -528,14 +539,16 @@ int main(void) {
     DEBUG_LOG("Autostart run");
 
     XEvent ev;
-    struct timeval tv;
+    struct timeval tv, last_update;
     fd_set fds;
     int xfd = ConnectionNumber(d);
+
+    gettimeofday(&last_update, NULL);
 
     DEBUG_LOG("Entering main loop");
 
     while (1) {
-        if (XPending(d)) {
+        while (XPending(d)) {
             XNextEvent(d, &ev);
             DEBUG_LOG("Received event: type=%d", ev.type);
 
@@ -546,31 +559,32 @@ int main(void) {
             if (ev.type == ClientMessage && ev.xclient.message_type == system_tray_opcode_atom) {
                 handle_systray_request(&ev.xclient);
             } else if (ev.type == DestroyNotify) {
-                for (int i = 0; i < num_systray_icons; i++) {
-                    if (systray_icons[i] == ev.xdestroywindow.window) {
-                        for (int j = i; j < num_systray_icons - 1; j++) {
-                            systray_icons[j] = systray_icons[j+1];
-                        }
-                        num_systray_icons--;
-                        break;
-                    }
-                }
+                handle_destroy_notify(&ev.xdestroywindow);
+                update_systray();
+            } else if (ev.type == MapNotify || ev.type == UnmapNotify) {
+                update_systray();
             }
-        } else {
-            FD_ZERO(&fds);
-            FD_SET(xfd, &fds);
-            tv.tv_usec = 100000;  // 100ms timeout
-            tv.tv_sec = 0;
+        }
 
-            int ready = select(xfd + 1, &fds, 0, 0, &tv);
-            if (ready == -1) {
-                if (errno != EINTR) {
-                    ERROR_LOG("select() failed");
-                }
-            } else if (ready == 0) {
-                // Timeout occurred, update bar and systray
+        FD_ZERO(&fds);
+        FD_SET(xfd, &fds);
+        tv.tv_usec = 100000;  // 100ms timeout
+        tv.tv_sec = 0;
+
+        int ready = select(xfd + 1, &fds, 0, 0, &tv);
+        if (ready == -1) {
+            if (errno != EINTR) {
+                ERROR_LOG("select() failed");
+            }
+        } else if (ready == 0) {
+            // Timeout occurred, check if it's time to update
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            if ((now.tv_sec - last_update.tv_sec) * 1000000 + (now.tv_usec - last_update.tv_usec) >= 1000000) {
+                // Update every second
                 update_bar();
                 update_systray();
+                last_update = now;
             }
         }
     }
