@@ -2,16 +2,16 @@
 
 nyxwm is a simple, lightweight X window manager forked from [sowm](https://github.com/dylanaraps/sowm) and incorporating features from [dwmblocks](https://github.com/torrinfail/dwmblocks). It aims to provide a minimalist yet functional desktop environment for Linux systems.
 
-![image](https://github.com/user-attachments/assets/6762331f-ff0b-4f3f-b400-2e06f75479f6)
+![rice](https://github.com/user-attachments/assets/a55adf8c-6a01-4a43-9849-a250923ecdad)
 
 ## Features
 
+- Floating/fullscreen only, no tiling 
 - Minimalist design philosophy
 - Low resource usage
 - Customizable statusbar with real-time updates
 - Simple window management with keyboard shortcuts
 - Support for multiple workspaces
-- Customizable through config.h
 - Integrated systray
 - Autostart script support
 
@@ -23,7 +23,7 @@ To build and run nyxwm, you'll need the following:
 - libXft
 - libX11
 - make
-- A C compiler (gcc or clang)
+- gcc
 
 ## Installation
 
@@ -47,16 +47,6 @@ nyxwm is configured through the `config.h` file. You can modify keybindings, col
 
 The status bar can be customized by editing the `blocks.h` file, where you can add or remove status elements.
 
-## Usage
-
-Add the following line to your `.xinitrc` file:
-
-```
-exec nyxwm
-```
-
-Then, you can start nyxwm by running `startx`.
-
 ### Default Keybindings
 
 - `Mod4 + Enter`: Open terminal (st)
@@ -78,7 +68,8 @@ Please feel free to submit pull requests or open issues for bugs and feature req
 
 ## Acknowledgments
 
-nyxwm is forked from [sowm](https://github.com/dylanaraps/sowm) by Dylan Araps and incorporates ideas from [dwmblocks](https://github.com/torrinfail/dwmblocks) by torrinfail.
+nyxwm is forked from [sowm](https://github.com/dylanaraps/sowm) by Dylan Araps 
+and incorporates ideas from [dwmblocks](https://github.com/torrinfail/dwmblocks) by torrinfail.
 
 ## License
 
