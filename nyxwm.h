@@ -1,9 +1,10 @@
+/* nyxwm.h */
 #ifndef NYXWM_H
 #define NYXWM_H
 
-#include <X11/Xlib.h>
-#include <X11/Xft/Xft.h>
 #include <X11/Xatom.h>
+#include <X11/Xft/Xft.h>
+#include <X11/Xlib.h>
 
 #define SYSTEM_TRAY_REQUEST_DOCK    0
 #define SYSTEM_TRAY_BEGIN_MESSAGE   1
@@ -24,53 +25,51 @@
 #define XEMBED_UNREGISTER_ACCELERATOR 13
 #define XEMBED_ACTIVATE_ACCELERATOR 14
 
+#ifndef BAR_HEIGHT
+#define BAR_HEIGHT 23
+#endif
 
 #ifndef MAX_SYSTRAY_ICONS
 #define MAX_SYSTRAY_ICONS 20
 #endif
 
-#ifndef BAR_HEIGHT
-#define BAR_HEIGHT 23
-#endif
-
-#define win        (client *t=0, *c=list; c && t!=list->prev; t=c, c=c->next)
+#define win        (t = 0, c = list; c && t != list->prev; t = c, c = c->next)
 #define ws_save(W) ws_list[W] = list
 #define ws_sel(W)  list = ws_list[ws = W]
 #define MAX(a, b)  ((a) > (b) ? (a) : (b))
 
 #define win_size(W, gx, gy, gw, gh) \
-    XGetGeometry(d, W, &(Window){0}, gx, gy, gw, gh, \
-                 &(unsigned int){0}, &(unsigned int){0})
+	XGetGeometry(d, W, &(Window){0}, gx, gy, gw, gh, \
+		&(unsigned int){0}, &(unsigned int){0})
 
-// Taken from DWM. Many thanks. https://git.suckless.org/dwm
-#define mod_clean(mask) (mask & ~(numlock|LockMask) & \
-        (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
+#define mod_clean(mask) (mask & ~(numlock | LockMask) & \
+	(ShiftMask | ControlMask | Mod1Mask | Mod2Mask | Mod3Mask | Mod4Mask | Mod5Mask))
 
 typedef struct {
-    char* icon;
-    char* command;
-    unsigned int interval;
-    unsigned int signal;
+	char *icon;
+	char *command;
+	unsigned int interval;
+	unsigned int signal;
 } Block;
 
 typedef struct {
-    const char** com;
-    const int i;
-    const Window w;
+	const char **com;
+	const int i;
+	const Window w;
 } Arg;
 
 struct key {
-    unsigned int mod;
-    KeySym keysym;
-    void (*function)(const Arg arg);
-    const Arg arg;
+	unsigned int mod;
+	KeySym keysym;
+	void (*function)(const Arg arg);
+	const Arg arg;
 };
 
 typedef struct client {
-    struct client *next, *prev;
-    int f, wx, wy;
-    unsigned int ww, wh;
-    Window w;
+	struct client *next, *prev;
+	int f, wx, wy;
+	unsigned int ww, wh;
+	Window w;
 } client;
 
 unsigned long getcolor(const char *col);
@@ -85,7 +84,6 @@ void notify_destroy(XEvent *e);
 void notify_enter(XEvent *e);
 void notify_motion(XEvent *e);
 void run(const Arg arg);
-void runAutoStart(void);
 void win_add(Window w);
 void win_center(const Arg arg);
 void win_del(Window w);
@@ -96,26 +94,7 @@ void win_prev(const Arg arg);
 void win_next(const Arg arg);
 void win_to_ws(const Arg arg);
 void ws_go(const Arg arg);
-void create_bar();
-void update_bar();
 void draw_text(const char *text, int x, int y);
-void create_systray();
-void handle_systray_request(XClientMessageEvent *cme);
-void update_systray();
-void run_nyxwmblocks();
-void handle_destroy_notify(XDestroyWindowEvent *ev);
 int xerror(Display *dpy, XErrorEvent *ee);
 
-extern Window bar;
-extern XftFont *xft_font;
-extern XftColor xft_color;
-extern XftDraw *xft_draw;
-extern Window systray;
-extern Window systray_icons[MAX_SYSTRAY_ICONS];
-extern int num_systray_icons;
-extern Atom xembed_atom;
-extern Atom manager_atom;
-extern Atom system_tray_opcode_atom;
-extern Atom system_tray_selection_atom;
-
-#endif
+#endif /* NYXWM_H */

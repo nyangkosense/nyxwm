@@ -2,8 +2,11 @@
 #define CONFIG_H
 
 /* stats bar */
-#define BAR_HEIGHT 20
-#define FONT "monospace:size=10"
+#ifdef BAR_HEIGHT
+#undef BAR_HEIGHT
+#endif
+#define BAR_HEIGHT 35
+#define FONT "monospace:size=14"
 #define BAR_COLOR "#333333"
 #define TEXT_COLOR "#FFFFFF"
 
@@ -16,8 +19,8 @@
 #define BORDER_COLOR "#ffffff"
 #define BORDER_WIDTH 1
 
-const char *menu[] = {"zmen", 0};
-const char *term[] = {"nt", 0};
+const char *menu[] = {"dmenu", 0};
+const char *term[] = {"st", 0};
 const char *scrot[] = {"scr", 0};
 const char *briup[] = {"bri", "10", "+", 0};
 const char *bridown[] = {"bri", "10", "-", 0};

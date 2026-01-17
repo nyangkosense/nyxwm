@@ -1,599 +1,689 @@
-#include <X11/Xlib.h>
-#include <X11/XF86keysym.h>
-#include <X11/keysym.h>
-#include <X11/XKBlib.h>
-#include <X11/Xproto.h> 
-#include <X11/Xft/Xft.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <pthread.h>
-#include <sys/wait.h>
-#include <sys/select.h>
 #include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
+
+#include <X11/keysym.h>
+#include <X11/XF86keysym.h>
+#include <X11/XKBlib.h>
+#include <X11/Xproto.h>
+
 #include "nyxwm.h"
 #include "config.h"
 #include "nyxwmblocks.h"
 
-#define DEBUG_LOG(msg, ...) do { \
-    time_t now = time(NULL); \
-    char timestr[20]; \
-    strftime(timestr, sizeof(timestr), "%Y-%m-%d %H:%M:%S", localtime(&now)); \
-    fprintf(stderr, "[%s] DEBUG: " msg "\n", timestr, ##__VA_ARGS__); \
-} while(0)
+static Display *d;
+static Window root;
+static Window bar;
+static XftFont *xft_font;
+static XftColor xft_color;
+static XftDraw *xft_draw;
+static Window systray;
+static Window systray_icons[MAX_SYSTRAY_ICONS];
+static Atom xembed_atom;
+static Atom manager_atom;
+static Atom system_tray_opcode_atom;
+static Atom system_tray_selection_atom;
 
-#define ERROR_LOG(msg, ...) do { \
-    time_t now = time(NULL); \
-    char timestr[20]; \
-    strftime(timestr, sizeof(timestr), "%Y-%m-%d %H:%M:%S", localtime(&now)); \
-    fprintf(stderr, "[%s] ERROR: " msg ": %s\n", timestr, ##__VA_ARGS__, strerror(errno)); \
-} while(0)
-
-Display      *d;
-Window       root;
-Window bar;
-XftFont *xft_font;
-XftColor xft_color;
-XftDraw *xft_draw;
-Window systray;
-Window systray_icons[MAX_SYSTRAY_ICONS];
-Atom xembed_atom;
-Atom manager_atom;
-Atom system_tray_opcode_atom;
-Atom system_tray_selection_atom;
-
-static client       *list = {0}, *ws_list[10] = {0}, *cur;
-static int          ws = 1, sw, sh, wx, wy, numlock = 0;
+static client *list = 0, *ws_list[10] = {0}, *cur;
+static int ws = 1, sw, sh, wx, wy, numlock = 0;
 static unsigned int ww, wh;
-static int          s;
+static int s;
 static XButtonEvent mouse;
-int num_systray_icons;
+static int num_systray_icons;
+
+static void run_autostart(void);
+static void create_bar(void);
+static void create_systray(void);
+static void update_systray(void);
+static void update_bar(void);
+static void handle_systray_request(XClientMessageEvent *cme);
+static void handle_destroy_notify(XDestroyWindowEvent *ev);
 
 static void (*events[LASTEvent])(XEvent *e) = {
-    [ButtonPress]      = button_press,
-    [ButtonRelease]    = button_release,
-    [ConfigureRequest] = configure_request,
-    [KeyPress]         = key_press,
-    [MapRequest]       = map_request,
-    [MappingNotify]    = mapping_notify,
-    [DestroyNotify]    = notify_destroy,
-    [EnterNotify]      = notify_enter,
-    [MotionNotify]     = notify_motion
+	[ButtonPress]      = button_press,
+	[ButtonRelease]    = button_release,
+	[ConfigureRequest] = configure_request,
+	[KeyPress]         = key_press,
+	[MapRequest]       = map_request,
+	[MappingNotify]    = mapping_notify,
+	[DestroyNotify]    = notify_destroy,
+	[EnterNotify]      = notify_enter,
+	[MotionNotify]     = notify_motion
 };
 
-unsigned long getcolor(const char *col) {
-    Colormap m = DefaultColormap(d, s);
-    XColor c;
-    return (!XAllocNamedColor(d, m, col, &c, &c))?0:c.pixel;
+unsigned long
+getcolor(const char *col)
+{
+	Colormap m;
+	XColor c;
+
+	m = DefaultColormap(d, s);
+	return (!XAllocNamedColor(d, m, col, &c, &c)) ? 0 : c.pixel;
 }
 
-void runAutoStart(void) {
-    system("cd ~/.nyxwm; ./autostart.sh &");
+static void
+run_autostart(void)
+{
+	system("cd ~/.nyxwm; ./autostart.sh &");
 }
 
-void win_focus(client *c) {
-    cur = c;
-    XSetInputFocus(d, cur->w, RevertToParent, CurrentTime);
+void
+win_focus(client *c)
+{
+	cur = c;
+	XSetInputFocus(d, cur->w, RevertToParent, CurrentTime);
 }
 
-void notify_destroy(XEvent *e) {
-    win_del(e->xdestroywindow.window);
+void
+notify_destroy(XEvent *e)
+{
+	win_del(e->xdestroywindow.window);
 
-    if (list) win_focus(list->prev);
+	if (list)
+		win_focus(list->prev);
 }
 
-void notify_enter(XEvent *e) {
-    while(XCheckTypedEvent(d, EnterNotify, e));
-	while(XCheckTypedWindowEvent(d, mouse.subwindow, MotionNotify, e));
+void
+notify_enter(XEvent *e)
+{
+	client *t, *c;
 
-    for win if (c->w == e->xcrossing.window) win_focus(c);
+	while (XCheckTypedEvent(d, EnterNotify, e))
+		;
+	while (XCheckTypedWindowEvent(d, mouse.subwindow, MotionNotify, e))
+		;
+
+	for win
+		if (c->w == e->xcrossing.window)
+			win_focus(c);
 }
 
-void notify_motion(XEvent *e) {
-    if (!mouse.subwindow || cur->f) return;
+void
+notify_motion(XEvent *e)
+{
+	int xd, yd;
 
-    while(XCheckTypedEvent(d, MotionNotify, e));
+	if (!mouse.subwindow || cur->f)
+		return;
 
-    int xd = e->xbutton.x_root - mouse.x_root;
-    int yd = e->xbutton.y_root - mouse.y_root;
+	while (XCheckTypedEvent(d, MotionNotify, e))
+		;
 
-    XMoveResizeWindow(d, mouse.subwindow,
-        wx + (mouse.button == 1 ? xd : 0),
-        wy + (mouse.button == 1 ? yd : 0),
-        MAX(1, ww + (mouse.button == 3 ? xd : 0)),
-        MAX(1, wh + (mouse.button == 3 ? yd : 0)));
+	xd = e->xbutton.x_root - mouse.x_root;
+	yd = e->xbutton.y_root - mouse.y_root;
+
+	XMoveResizeWindow(d, mouse.subwindow,
+		wx + (mouse.button == 1 ? xd : 0),
+		wy + (mouse.button == 1 ? yd : 0),
+		MAX(1, ww + (mouse.button == 3 ? xd : 0)),
+		MAX(1, wh + (mouse.button == 3 ? yd : 0)));
 }
 
-void key_press(XEvent *e) {
-    KeySym keysym = XkbKeycodeToKeysym(d, e->xkey.keycode, 0, 0);
+void
+key_press(XEvent *e)
+{
+	KeySym keysym;
+	unsigned int i;
 
-    for (unsigned int i=0; i < sizeof(keys)/sizeof(*keys); ++i)
-        if (keys[i].keysym == keysym &&
-            mod_clean(keys[i].mod) == mod_clean(e->xkey.state))
-            keys[i].function(keys[i].arg);
+	keysym = XkbKeycodeToKeysym(d, e->xkey.keycode, 0, 0);
+
+	for (i = 0; i < sizeof(keys) / sizeof(*keys); i++)
+		if (keys[i].keysym == keysym &&
+		    mod_clean(keys[i].mod) == mod_clean(e->xkey.state))
+			keys[i].function(keys[i].arg);
 }
 
-void button_press(XEvent *e) {
-    if (!e->xbutton.subwindow) return;
+void
+button_press(XEvent *e)
+{
+	if (!e->xbutton.subwindow)
+		return;
 
-    win_size(e->xbutton.subwindow, &wx, &wy, &ww, &wh);
-    XRaiseWindow(d, e->xbutton.subwindow);
-    mouse = e->xbutton;
+	win_size(e->xbutton.subwindow, &wx, &wy, &ww, &wh);
+	XRaiseWindow(d, e->xbutton.subwindow);
+	mouse = e->xbutton;
 }
 
-void button_release(XEvent *e) {
-    mouse.subwindow = 0;
+void
+button_release(XEvent *e)
+{
+	mouse.subwindow = 0;
 }
 
-void win_add(Window w) {
-    client *c;
+void
+win_add(Window w)
+{
+	client *c;
 
-    if (!(c = (client *) calloc(1, sizeof(client))))
-        exit(1);
+	if (!(c = (client *)calloc(1, sizeof(client))))
+		exit(1);
 
-    c->w = w;
+	c->w = w;
 
-    if (list) {
-        list->prev->next = c;
-        c->prev          = list->prev;
-        list->prev       = c;
-        c->next          = list;
+	if (list) {
+		list->prev->next = c;
+		c->prev = list->prev;
+		list->prev = c;
+		c->next = list;
 
-    } else {
-        list = c;
-        list->prev = list->next = list;
-    }
+	} else {
+		list = c;
+		list->prev = list->next = list;
+	}
 
-    ws_save(ws);
+	ws_save(ws);
 }
 
-void win_del(Window w) {
-    client *x = 0;
+void
+win_del(Window w)
+{
+	client *t, *c;
+	client *x;
 
-    for win if (c->w == w) x = c;
+	x = 0;
+	for win
+		if (c->w == w)
+			x = c;
 
-    if (!list || !x)  return;
-    if (x->prev == x) list = 0;
-    if (list == x)    list = x->next;
-    if (x->next)      x->next->prev = x->prev;
-    if (x->prev)      x->prev->next = x->next;
+	if (!list || !x)
+		return;
+	if (x->prev == x)
+		list = 0;
+	if (list == x)
+		list = x->next;
+	if (x->next)
+		x->next->prev = x->prev;
+	if (x->prev)
+		x->prev->next = x->next;
 
-    free(x);
-    ws_save(ws);
+	free(x);
+	ws_save(ws);
 }
 
-void win_kill(const Arg arg) {
-    if (cur) XKillClient(d, cur->w);
+void
+win_kill(const Arg arg)
+{
+	if (cur)
+		XKillClient(d, cur->w);
 }
 
-void win_center(const Arg arg) {
-    if (!cur) return;
+void
+win_center(const Arg arg)
+{
+	if (!cur)
+		return;
 
-    win_size(cur->w, &(int){0}, &(int){0}, &ww, &wh);
-    XMoveWindow(d, cur->w, (sw - ww) / 2, ((sh - BAR_HEIGHT) - wh) / 2 + BAR_HEIGHT);
+	win_size(cur->w, &(int){0}, &(int){0}, &ww, &wh);
+	XMoveWindow(d, cur->w, (sw - ww) / 2,
+		((sh - BAR_HEIGHT) - wh) / 2 + BAR_HEIGHT);
 }
 
+void
+win_fs(const Arg arg)
+{
+	if (!cur)
+		return;
 
-void win_fs(const Arg arg) {
-    if (!cur) return;
-
-    if ((cur->f = cur->f ? 0 : 1)) {
-        // Going fullscreen
-        win_size(cur->w, &cur->wx, &cur->wy, &cur->ww, &cur->wh);
-        XMoveResizeWindow(d, cur->w, 0, BAR_HEIGHT, sw, sh - BAR_HEIGHT);
-        XRaiseWindow(d, cur->w);
-    } else {
-        // Exiting fullscreen
-        XMoveResizeWindow(d, cur->w, cur->wx, cur->wy, cur->ww, cur->wh);
-    }
-    update_systray();
-    update_bar();
+	if ((cur->f = cur->f ? 0 : 1)) {
+		win_size(cur->w, &cur->wx, &cur->wy, &cur->ww, &cur->wh);
+		XMoveResizeWindow(d, cur->w, 0, BAR_HEIGHT, sw, sh - BAR_HEIGHT);
+		XRaiseWindow(d, cur->w);
+	} else {
+		XMoveResizeWindow(d, cur->w, cur->wx, cur->wy, cur->ww, cur->wh);
+	}
+	update_systray();
+	update_bar();
 }
 
-void win_to_ws(const Arg arg) {
-    int tmp = ws;
+void
+win_to_ws(const Arg arg)
+{
+	int tmp;
 
-    if (arg.i == tmp) return;
+	tmp = ws;
+	if (arg.i == tmp)
+		return;
 
-    ws_sel(arg.i);
-    win_add(cur->w);
-    ws_save(arg.i);
+	ws_sel(arg.i);
+	win_add(cur->w);
+	ws_save(arg.i);
 
-    ws_sel(tmp);
-    win_del(cur->w);
-    XUnmapWindow(d, cur->w);
-    ws_save(tmp);
+	ws_sel(tmp);
+	win_del(cur->w);
+	XUnmapWindow(d, cur->w);
+	ws_save(tmp);
 
-    if (list) win_focus(list);
+	if (list)
+		win_focus(list);
 }
 
-void win_prev(const Arg arg) {
-    if (!cur) return;
+void
+win_prev(const Arg arg)
+{
+	if (!cur)
+		return;
 
-    XRaiseWindow(d, cur->prev->w);
-    win_focus(cur->prev);
+	XRaiseWindow(d, cur->prev->w);
+	win_focus(cur->prev);
 }
 
-void win_next(const Arg arg) {
-    if (!cur) return;
+void
+win_next(const Arg arg)
+{
+	if (!cur)
+		return;
 
-    XRaiseWindow(d, cur->next->w);
-    win_focus(cur->next);
+	XRaiseWindow(d, cur->next->w);
+	win_focus(cur->next);
 }
 
-void ws_go(const Arg arg) {
-    int tmp = ws;
+void
+ws_go(const Arg arg)
+{
+	client *t, *c;
+	int tmp;
 
-    if (arg.i == ws) return;
+	tmp = ws;
+	if (arg.i == ws)
+		return;
 
-    ws_save(ws);
-    ws_sel(arg.i);
+	ws_save(ws);
+	ws_sel(arg.i);
 
-    for win XMapWindow(d, c->w);
+	for win
+		XMapWindow(d, c->w);
 
-    ws_sel(tmp);
+	ws_sel(tmp);
 
-    for win XUnmapWindow(d, c->w);
+	for win
+		XUnmapWindow(d, c->w);
 
-    ws_sel(arg.i);
+	ws_sel(arg.i);
 
-    if (list) win_focus(list); else cur = 0;
+	if (list)
+		win_focus(list);
+	else
+		cur = 0;
 }
 
-void configure_request(XEvent *e) {
-    XConfigureRequestEvent *ev = &e->xconfigurerequest;
+void
+configure_request(XEvent *e)
+{
+	XConfigureRequestEvent *ev;
 
-    XConfigureWindow(d, ev->window, ev->value_mask, &(XWindowChanges) {
-        .x          = ev->x,
-        .y          = ev->y,
-        .width      = ev->width,
-        .height     = ev->height,
-        .sibling    = ev->above,
-        .stack_mode = ev->detail
-    });
+	ev = &e->xconfigurerequest;
+
+	XConfigureWindow(d, ev->window, ev->value_mask, &(XWindowChanges){
+		.x = ev->x,
+		.y = ev->y,
+		.width = ev->width,
+		.height = ev->height,
+		.sibling = ev->above,
+		.stack_mode = ev->detail
+	});
 }
 
-void map_request(XEvent *e) {
-    Window w = e->xmaprequest.window;
+void
+map_request(XEvent *e)
+{
+	Window w;
 
-    XSelectInput(d, w, StructureNotifyMask|EnterWindowMask);
-    win_size(w, &wx, &wy, &ww, &wh);
-    win_add(w);
-    cur = list->prev;
-    XSetWindowBorder(d, w, getcolor(BORDER_COLOR));
-    XConfigureWindow(d, w, CWBorderWidth, &(XWindowChanges){.border_width = BORDER_WIDTH});
-    
-    if (wx + wy == 0) win_center((Arg){0});
+	w = e->xmaprequest.window;
 
-    XMapWindow(d, w);
-    win_focus(list->prev);
+	XSelectInput(d, w, StructureNotifyMask | EnterWindowMask);
+	win_size(w, &wx, &wy, &ww, &wh);
+	win_add(w);
+	cur = list->prev;
+	XSetWindowBorder(d, w, getcolor(BORDER_COLOR));
+	XConfigureWindow(d, w, CWBorderWidth,
+		&(XWindowChanges){.border_width = BORDER_WIDTH});
+
+	if (wx + wy == 0)
+		win_center((Arg){0});
+
+	XMapWindow(d, w);
+	win_focus(list->prev);
 }
 
-void mapping_notify(XEvent *e) {
-    XMappingEvent *ev = &e->xmapping;
+void
+mapping_notify(XEvent *e)
+{
+	XMappingEvent *ev;
 
-    if (ev->request == MappingKeyboard || ev->request == MappingModifier) {
-        XRefreshKeyboardMapping(ev);
-        input_grab(root);
-    }
+	ev = &e->xmapping;
+
+	if (ev->request == MappingKeyboard || 
+		ev->request == MappingModifier) {
+		XRefreshKeyboardMapping(ev);
+		input_grab(root);
+	}
 }
 
-void run(const Arg arg) {
-    if (fork() == 0) {
-        if (d) {
-            close(ConnectionNumber(d));
-        }
-        setsid();
-        execvp((char*)arg.com[0], (char**)arg.com);
-        fprintf(stderr, "nyxwm: execvp %s", ((char **)arg.com)[0]);
-        perror(" failed");
-        exit(0);
-    }
+void
+run(const Arg arg)
+{
+	if (fork() == 0) {
+		if (d)
+		close(ConnectionNumber(d));
+		setsid();
+		execvp((char *)arg.com[0], (char **)arg.com);
+		fprintf(stderr, "nyxwm: execvp %s", ((char **)arg.com)[0]);
+		perror(" failed");
+		exit(0);
+	}
 }
 
-void input_grab(Window root) {
-    unsigned int i, j, modifiers[] = {0, LockMask, numlock, numlock|LockMask};
-    XModifierKeymap *modmap = XGetModifierMapping(d);
-    KeyCode code;
+void
+input_grab(Window root)
+{
+	XModifierKeymap *modmap;
+	KeyCode code;
+	unsigned int modifiers[] = {0, LockMask, numlock, numlock | LockMask};
+	unsigned int i, j;
+	int k;
 
-    for (i = 0; i < 8; i++)
-        for (int k = 0; k < modmap->max_keypermod; k++)
-            if (modmap->modifiermap[i * modmap->max_keypermod + k]
-                == XKeysymToKeycode(d, 0xff7f))
-                numlock = (1 << i);
+	modmap = XGetModifierMapping(d);
 
-    XUngrabKey(d, AnyKey, AnyModifier, root);
+	for (i = 0; i < 8; i++)
+		for (k = 0; k < modmap->max_keypermod; k++)
+			if (modmap->modifiermap[i * modmap->max_keypermod + k]
+			    == XKeysymToKeycode(d, 0xff7f))
+				numlock = (1 << i);
 
-    for (i = 0; i < sizeof(keys)/sizeof(*keys); i++)
-        if ((code = XKeysymToKeycode(d, keys[i].keysym)))
-            for (j = 0; j < sizeof(modifiers)/sizeof(*modifiers); j++)
-                XGrabKey(d, code, keys[i].mod | modifiers[j], root,
-                        True, GrabModeAsync, GrabModeAsync);
+	XUngrabKey(d, AnyKey, AnyModifier, root);
 
-    for (i = 1; i < 4; i += 2)
-        for (j = 0; j < sizeof(modifiers)/sizeof(*modifiers); j++)
-            XGrabButton(d, i, MOD | modifiers[j], root, True,
-                ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
-                GrabModeAsync, GrabModeAsync, 0, 0);
+	for (i = 0; i < sizeof(keys) / sizeof(*keys); i++)
+		if ((code = XKeysymToKeycode(d, keys[i].keysym)))
+			for (j = 0; j < sizeof(modifiers) / sizeof(*modifiers); j++)
+				XGrabKey(d, code, keys[i].mod | modifiers[j], root,
+					True, GrabModeAsync, GrabModeAsync);
 
-    XFreeModifiermap(modmap);
+	for (i = 1; i < 4; i += 2)
+		for (j = 0; j < sizeof(modifiers) / sizeof(*modifiers); j++)
+			XGrabButton(d, i, MOD | modifiers[j], root, True,
+				ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+				GrabModeAsync, GrabModeAsync, 0, 0);
+
+	XFreeModifiermap(modmap);
 }
 
-void create_bar() {
-    XSetWindowAttributes attr = {
-        .override_redirect = True,
-        .background_pixel = getcolor(BAR_COLOR)
-    };
-    
-    int bar_width = sw - 2 * TRAY_PADDING; // Adjust if needed
+static void
+create_bar(void)
+{
+	XSetWindowAttributes attr;
+	int bar_width;
 
-    bar = XCreateWindow(d, root, TRAY_PADDING, 0, bar_width, BAR_HEIGHT, 0,
-                        DefaultDepth(d, s), CopyFromParent,
-                        DefaultVisual(d, s),
-                        CWOverrideRedirect | CWBackPixel, &attr);;
-    
-    XMapWindow(d, bar);
-    
-    xft_font = XftFontOpenName(d, s, FONT);  // Use xft_font instead of font
-    XftColorAllocName(d, DefaultVisual(d, s), DefaultColormap(d, s), TEXT_COLOR, &xft_color);
-    xft_draw = XftDrawCreate(d, bar, DefaultVisual(d, s), DefaultColormap(d, s));
+	attr.override_redirect = True;
+	attr.background_pixel = getcolor(BAR_COLOR);
+
+	bar_width = sw - 2 * TRAY_PADDING;
+
+	bar = XCreateWindow(d, root, TRAY_PADDING, 0, bar_width,
+		BAR_HEIGHT, 0, DefaultDepth(d, s), CopyFromParent,
+		DefaultVisual(d, s), CWOverrideRedirect | CWBackPixel, &attr);
+
+	XMapWindow(d, bar);
+
+	xft_font = XftFontOpenName(d, s, FONT);
+	XftColorAllocName(d, DefaultVisual(d, s), DefaultColormap(d, s),
+		TEXT_COLOR, &xft_color);
+	xft_draw = XftDrawCreate(d, bar, DefaultVisual(d, s),
+		DefaultColormap(d, s));
 }
 
-void draw_text(const char *text, int x, int y) {
-    XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y, (XftChar8*)text, strlen(text));
+void
+draw_text(const char *text, int x, int y)
+{
+	XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y,
+		(XftChar8 *)text, strlen(text));
 }
 
-void create_systray() {
-    XSetWindowAttributes attr;
-    attr.override_redirect = True;
-    attr.background_pixel = getcolor(BAR_COLOR);
-    systray = XCreateWindow(d, root, sw - TRAY_PADDING, 0, TRAY_PADDING * 2, BAR_HEIGHT, 0,
-                            DefaultDepth(d, s), CopyFromParent,
-                            DefaultVisual(d, s),
-                            CWOverrideRedirect | CWBackPixel, &attr);
-    XMapWindow(d, systray);
+static void
+create_systray(void)
+{
+	XSetWindowAttributes attr;
 
-    xembed_atom = XInternAtom(d, "_XEMBED", False);
-    manager_atom = XInternAtom(d, "MANAGER", False);
-    system_tray_opcode_atom = XInternAtom(d, "_NET_SYSTEM_TRAY_OPCODE", False);
-    system_tray_selection_atom = XInternAtom(d, "_NET_SYSTEM_TRAY_S0", False);
+	attr.override_redirect = True;
+	attr.background_pixel = getcolor(BAR_COLOR);
+	systray = XCreateWindow(d, root, sw - TRAY_PADDING, 0,
+		TRAY_PADDING * 2, BAR_HEIGHT, 0, DefaultDepth(d, s),
+		CopyFromParent, DefaultVisual(d, s),
+		CWOverrideRedirect | CWBackPixel, &attr);
+	XMapWindow(d, systray);
 
-    XSetSelectionOwner(d, system_tray_selection_atom, systray, CurrentTime);
-    if (XGetSelectionOwner(d, system_tray_selection_atom) == systray) {
-        XClientMessageEvent cm;
-        cm.type = ClientMessage;
-        cm.window = root;
-        cm.message_type = manager_atom;
-        cm.format = 32;
-        cm.data.l[0] = CurrentTime;
-        cm.data.l[1] = system_tray_selection_atom;
-        cm.data.l[2] = systray;
-        cm.data.l[3] = 0;
-        cm.data.l[4] = 0;
-        XSendEvent(d, root, False, StructureNotifyMask, (XEvent *)&cm);
-        printf("Systray created and manager message sent\n");
-    } else {
-        printf("Failed to acquire selection ownership for systray\n");
-    }
+	xembed_atom = XInternAtom(d, "_XEMBED", False);
+	manager_atom = XInternAtom(d, "MANAGER", False);
+	system_tray_opcode_atom = XInternAtom(d, "_NET_SYSTEM_TRAY_OPCODE", False);
+	system_tray_selection_atom = XInternAtom(d, "_NET_SYSTEM_TRAY_S0", False);
+
+	XSetSelectionOwner(d, system_tray_selection_atom, systray, CurrentTime);
+	if (XGetSelectionOwner(d, system_tray_selection_atom) == systray) {
+		XClientMessageEvent cm;
+
+		cm.type = ClientMessage;
+		cm.window = root;
+		cm.message_type = manager_atom;
+		cm.format = 32;
+		cm.data.l[0] = CurrentTime;
+		cm.data.l[1] = system_tray_selection_atom;
+		cm.data.l[2] = systray;
+		cm.data.l[3] = 0;
+		cm.data.l[4] = 0;
+		XSendEvent(d, root, False, StructureNotifyMask, (XEvent *)&cm);
+	}
 }
 
-void update_systray() {
-    int tray_width = num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2;
-    if (num_systray_icons > 0) {
-        tray_width -= TRAY_ICON_SPACING;
+static void
+update_systray(void)
+{
+	int tray_width;
+	int bar_width;
+	int i;
 
-        XMapWindow(d, systray);
-        XMoveResizeWindow(d, systray, 
-            sw - tray_width, 0,
-            tray_width, BAR_HEIGHT);
+	tray_width = num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING)
+		+ TRAY_PADDING * 2;
+	if (num_systray_icons > 0) {
+		tray_width -= TRAY_ICON_SPACING;
 
-        for (int i = 0; i < num_systray_icons; i++) {
-            XMoveResizeWindow(d, systray_icons[i],
-                TRAY_PADDING + i * (TRAY_ICON_SIZE + TRAY_ICON_SPACING),
-                (BAR_HEIGHT - TRAY_ICON_SIZE) / 2,
-                TRAY_ICON_SIZE, TRAY_ICON_SIZE);
-            XMapWindow(d, systray_icons[i]);
-        }
-    } else {
-        XUnmapWindow(d, systray);
-        tray_width = 0;
-    }
+		XMapWindow(d, systray);
+		XMoveResizeWindow(d, systray, sw - tray_width, 0,
+			tray_width, BAR_HEIGHT);
 
-    // Adjust the bar size to account for the systray
-    int bar_width = sw - tray_width;
-    XMoveResizeWindow(d, bar, 0, 0, bar_width, BAR_HEIGHT);
+		for (i = 0; i < num_systray_icons; i++) {
+			XMoveResizeWindow(d, systray_icons[i],
+				TRAY_PADDING + i * (TRAY_ICON_SIZE + TRAY_ICON_SPACING),
+				(BAR_HEIGHT - TRAY_ICON_SIZE) / 2,
+				TRAY_ICON_SIZE, TRAY_ICON_SIZE);
+			XMapWindow(d, systray_icons[i]);
+		}
+	} else {
+		XUnmapWindow(d, systray);
+		tray_width = 0;
+	}
 
-    // Raise the bar and systray to ensure they're visible
-    XRaiseWindow(d, bar);
-    if (num_systray_icons > 0) {
-        XRaiseWindow(d, systray);
-    }
+	bar_width = sw - tray_width;
+	XMoveResizeWindow(d, bar, 0, 0, bar_width, BAR_HEIGHT);
 
-    update_bar();
+	XRaiseWindow(d, bar);
+	if (num_systray_icons > 0)
+		XRaiseWindow(d, systray);
+
+	update_bar();
 }
 
-void handle_systray_request(XClientMessageEvent *cme) {
-    if (cme->data.l[1] == SYSTEM_TRAY_REQUEST_DOCK) {
-        Window icon = cme->data.l[2];
-        if (num_systray_icons < MAX_SYSTRAY_ICONS) {
-            XWindowAttributes wa;
-            if (XGetWindowAttributes(d, icon, &wa)) {
-                systray_icons[num_systray_icons++] = icon;
-                XReparentWindow(d, icon, systray, 0, 0);
-                XMapRaised(d, icon);
+static void
+handle_systray_request(XClientMessageEvent *cme)
+{
+	Window icon;
+	XWindowAttributes wa;
+	XEvent ev;
 
-                XEvent ev;
-                ev.xclient.type = ClientMessage;
-                ev.xclient.window = icon;
-                ev.xclient.message_type = xembed_atom;
-                ev.xclient.format = 32;
-                ev.xclient.data.l[0] = CurrentTime;
-                ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
-                ev.xclient.data.l[2] = 0;
-                ev.xclient.data.l[3] = systray;
-                ev.xclient.data.l[4] = 0;
-                XSendEvent(d, icon, False, NoEventMask, &ev);
+	if (cme->data.l[1] != SYSTEM_TRAY_REQUEST_DOCK)
+		return;
 
-                update_systray();
-                DEBUG_LOG("Icon docked: %ld", icon);
-            } else {
-                DEBUG_LOG("Failed to get window attributes for icon: %ld", icon);
-            }
-        } else {
-            DEBUG_LOG("Maximum number of systray icons reached");
-        }
-    } else {
-        DEBUG_LOG("Received unknown systray request: %ld", cme->data.l[1]);
-    }
+	icon = cme->data.l[2];
+	if (num_systray_icons >= MAX_SYSTRAY_ICONS)
+		return;
+
+	if (XGetWindowAttributes(d, icon, &wa)) {
+		systray_icons[num_systray_icons++] = icon;
+		XReparentWindow(d, icon, systray, 0, 0);
+		XMapRaised(d, icon);
+
+		ev.xclient.type = ClientMessage;
+		ev.xclient.window = icon;
+		ev.xclient.message_type = xembed_atom;
+		ev.xclient.format = 32;
+		ev.xclient.data.l[0] = CurrentTime;
+		ev.xclient.data.l[1] = XEMBED_EMBEDDED_NOTIFY;
+		ev.xclient.data.l[2] = 0;
+		ev.xclient.data.l[3] = systray;
+		ev.xclient.data.l[4] = 0;
+		XSendEvent(d, icon, False, NoEventMask, &ev);
+		update_systray();
+	}
 }
 
-void update_bar() {
-    char status[256];
-    run_nyxwmblocks(status, sizeof(status));
+static void
+update_bar(void)
+{
+	char status[256];
+	int bar_width;
+	int x, y;
+	XGlyphInfo extents;
 
-    XClearWindow(d, bar);
+	run_nyxwmblocks(status, sizeof(status));
 
-    int bar_width = sw - (num_systray_icons > 0 ? (num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING) + TRAY_PADDING * 2 - TRAY_ICON_SPACING) : 0);
+	XClearWindow(d, bar);
 
-    XGlyphInfo extents;
-    XftTextExtentsUtf8(d, xft_font, (XftChar8*)status, strlen(status), &extents);
+	bar_width = sw - (num_systray_icons > 0
+		? (num_systray_icons * (TRAY_ICON_SIZE + TRAY_ICON_SPACING)
+		+ TRAY_PADDING * 2 - TRAY_ICON_SPACING)
+		: 0);
 
-    int x = (bar_width - extents.width) / 2;
-    int y = BAR_HEIGHT / 2 + xft_font->ascent / 2;
+	XftTextExtentsUtf8(d, xft_font, (XftChar8 *)status,
+		strlen(status), &extents);
 
-    x = (x < 10) ? 10 : x;
+	x = (bar_width - extents.width) / 2;
+	y = BAR_HEIGHT / 2 + xft_font->ascent / 2;
 
-    XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y, (XftChar8*)status, strlen(status));
-    XFlush(d);
+	x = (x < 10) ? 10 : x;
+
+	XftDrawStringUtf8(xft_draw, &xft_color, xft_font, x, y,
+		(XftChar8 *)status, strlen(status));
+	XFlush(d);
 }
 
-int xerror(Display *dpy, XErrorEvent *ee) {
-    if (ee->error_code == BadAccess &&
-        ee->request_code == X_ChangeWindowAttributes) {
-        ERROR_LOG("Another window manager is already running");
-        exit(1);
-    }
+int
+xerror(Display *dpy, XErrorEvent *ee)
+{
+	char error_text[1024];
 
-    char error_text[1024];
-    XGetErrorText(dpy, ee->error_code, error_text, sizeof(error_text));
-    ERROR_LOG("XError: request_code=%d, error_code=%d, error_text=%s", 
-              ee->request_code, ee->error_code, error_text);
+	if (ee->error_code == BadAccess &&
+	    ee->request_code == X_ChangeWindowAttributes)
+		exit(1);
 
-    return 0;
+	XGetErrorText(dpy, ee->error_code, error_text, sizeof(error_text));
+	return 0;
 }
 
-void handle_destroy_notify(XDestroyWindowEvent *ev) {
-    for (int i = 0; i < num_systray_icons; i++) {
-        if (systray_icons[i] == ev->window) {
-            for (int j = i; j < num_systray_icons - 1; j++) {
-                systray_icons[j] = systray_icons[j+1];
-            }
-            num_systray_icons--;
-            update_systray();
-            break;
-        }
-    }
+static void
+handle_destroy_notify(XDestroyWindowEvent *ev)
+{
+	int i, j;
+
+	for (i = 0; i < num_systray_icons; i++) {
+		if (systray_icons[i] == ev->window) {
+			for (j = i; j < num_systray_icons - 1; j++)
+				systray_icons[j] = systray_icons[j + 1];
+			num_systray_icons--;
+			update_systray();
+			break;
+		}
+	}
 }
 
-int main(void) {
-    DEBUG_LOG("Starting nyxwm");
+int
+main(void)
+{
+	int (*prev_error_handler)(Display *, XErrorEvent *);
+	XEvent ev;
+	struct timeval tv, last_update, now;
+	fd_set fds;
+	int xfd;
+	int ready;
 
-    if (!(d = XOpenDisplay(NULL))) {
-        ERROR_LOG("Cannot open display");
-        return 1;
-    }
-    DEBUG_LOG("Display opened successfully");
+	if (!(d = XOpenDisplay(NULL)))
+		return 1;
 
-    signal(SIGCHLD, SIG_IGN);
-    int (*prev_error_handler)(Display *, XErrorEvent *);
-    prev_error_handler = XSetErrorHandler(xerror);
+	signal(SIGCHLD, SIG_IGN);
+	prev_error_handler = XSetErrorHandler(xerror);
 
-    s    = DefaultScreen(d);
-    root = RootWindow(d, s);
-    sw   = DisplayWidth(d, s);
-    sh   = DisplayHeight(d, s);
+	s = DefaultScreen(d);
+	root = RootWindow(d, s);
+	sw = DisplayWidth(d, s);
+	sh = DisplayHeight(d, s);
 
-    DEBUG_LOG("Screen info: s=%d, root=%lu, sw=%d, sh=%d", s, root, sw, sh);
+	if (XSelectInput(d, root, SubstructureRedirectMask
+	    | SubstructureNotifyMask) == BadWindow)
+		return 1;
 
-    if (XSelectInput(d, root, SubstructureRedirectMask | SubstructureNotifyMask) == BadWindow) {
-        ERROR_LOG("Failed to select input on root window");
-        return 1;
-    }
-    DEBUG_LOG("Input selected on root window");
+	XDefineCursor(d, root, XCreateFontCursor(d, 68));
+	input_grab(root);
+	create_bar();
+	create_systray();
+	run_autostart();
 
-    XDefineCursor(d, root, XCreateFontCursor(d, 68));
-    DEBUG_LOG("Cursor defined");
+	gettimeofday(&last_update, NULL);
+	xfd = ConnectionNumber(d);
 
-    input_grab(root);
-    DEBUG_LOG("Input grabbed");
+	while (1) {
+		while (XPending(d)) {
+			XNextEvent(d, &ev);
 
-    create_bar();
-    DEBUG_LOG("Bar created");
+			if (events[ev.type])
+				events[ev.type](&ev);
 
-    create_systray();
-    DEBUG_LOG("Systray created");
+			if (ev.type == ClientMessage
+			    && ev.xclient.message_type == system_tray_opcode_atom) {
+				handle_systray_request(&ev.xclient);
+			} else if (ev.type == DestroyNotify) {
+				handle_destroy_notify(&ev.xdestroywindow);
+				update_systray();
+			} else if (ev.type == MapNotify
+			    || ev.type == UnmapNotify) {
+				update_systray();
+			}
+		}
 
-    runAutoStart();
-    DEBUG_LOG("Autostart run");
+		FD_ZERO(&fds);
+		FD_SET(xfd, &fds);
+		tv.tv_usec = 100000;
+		tv.tv_sec = 0;
 
-    XEvent ev;
-    struct timeval tv, last_update;
-    fd_set fds;
-    int xfd = ConnectionNumber(d);
+		ready = select(xfd + 1, &fds, 0, 0, &tv);
+		if (ready < 0) {
+			if (errno != EINTR)
+				printf("select() failed");
+		} else if (ready == 0) {
+			gettimeofday(&now, NULL);
+			if ((now.tv_sec - last_update.tv_sec) * 1000000
+			    + (now.tv_usec - last_update.tv_usec) >= 1000000) {
+				update_bar();
+				update_systray();
+				last_update = now;
+			}
+		}
+	}
 
-    gettimeofday(&last_update, NULL);
+	XSetErrorHandler(prev_error_handler);
+	XCloseDisplay(d);
 
-    DEBUG_LOG("Entering main loop");
-
-    while (1) {
-        while (XPending(d)) {
-            XNextEvent(d, &ev);
-            DEBUG_LOG("Received event: type=%d", ev.type);
-
-            if (events[ev.type]) {
-                events[ev.type](&ev);
-            }
-
-            if (ev.type == ClientMessage && ev.xclient.message_type == system_tray_opcode_atom) {
-                handle_systray_request(&ev.xclient);
-            } else if (ev.type == DestroyNotify) {
-                handle_destroy_notify(&ev.xdestroywindow);
-                update_systray();
-            } else if (ev.type == MapNotify || ev.type == UnmapNotify) {
-                update_systray();
-            }
-        }
-
-        FD_ZERO(&fds);
-        FD_SET(xfd, &fds);
-        tv.tv_usec = 100000;  // 100ms timeout
-        tv.tv_sec = 0;
-
-        int ready = select(xfd + 1, &fds, 0, 0, &tv);
-        if (ready == -1) {
-            if (errno != EINTR) {
-                ERROR_LOG("select() failed");
-            }
-        } else if (ready == 0) {
-            // Timeout occurred, check if it's time to update
-            struct timeval now;
-            gettimeofday(&now, NULL);
-            if ((now.tv_sec - last_update.tv_sec) * 1000000 + (now.tv_usec - last_update.tv_usec) >= 1000000) {
-                // Update every second
-                update_bar();
-                update_systray();
-                last_update = now;
-            }
-        }
-    }
-
-    // This part will likely never be reached
-    DEBUG_LOG("Exiting main loop");
-    XSetErrorHandler(prev_error_handler);
-    XCloseDisplay(d);
-    DEBUG_LOG("Display closed");
-
-    return 0;
+	return 0;
 }

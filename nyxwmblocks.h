@@ -1,8 +1,9 @@
-// nyxwmblocks.h
-#ifndef SOWMBLOCKS_H
-#define SOWMBLOCKS_H
+/* nyxwmblocks.h */
+#ifndef NYXWMBLOCKS_H
+#define NYXWMBLOCKS_H
+
+#include <stddef.h>
 
 void run_nyxwmblocks(char *status, size_t size);
 
-#endif // SOWMBLOCKS_H
-
+#endif /* NYXWMBLOCKS_H */
