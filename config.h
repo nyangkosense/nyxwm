@@ -19,8 +19,8 @@
 #define BORDER_COLOR "#ffffff"
 #define BORDER_WIDTH 1
 
-const char *menu[] = {"dmenu", 0};
-const char *term[] = {"st", 0};
+const char *menu[] = {"zmen", 0};
+const char *term[] = {"nt", 0};
 const char *scrot[] = {"scr", 0};
 const char *briup[] = {"bri", "10", "+", 0};
 const char *bridown[] = {"bri", "10", "-", 0};
